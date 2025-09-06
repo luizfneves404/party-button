@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Reaction Game</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; margin-top: 50px; }
+    #go { display: none; font-size: 48px; color: red; margin: 20px; }
+    #result { margin-top: 20px; font-size: 20px; }
+    button { font-size: 20px; padding: 10px 20px; margin: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Reaction Game</h1>
+
+  <div id="role-select">
+    <button onclick="setRole('controller')">I am Controller</button>
+    <button onclick="setRole('player')">I am Player</button>
+  </div>
+
+  <div id="controller-ui" style="display:none;">
+    <p>Press START to trigger the game.</p>
+    <button onclick="triggerGo()">START</button>
+  </div>
+
+  <div id="player-ui" style="display:none;">
+    <p>Wait for the GO signal!</p>
+    <div id="go">GO!</div>
+    <button id="pressBtn" style="display:none;" onclick="playerPressed()">Press!</button>
+    <div id="result"></div>
+  </div>
+
+  <script type="module">
+    // ---- FIREBASE INIT ----
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT.firebaseapp.com",
+      projectId: "YOUR_PROJECT_ID",
+      storageBucket: "YOUR_PROJECT.appspot.com",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const matchDoc = doc(db, "games", "match1");
+
+    let role = null;
+    let goLocalTarget = null;
+    let goTimePerf = null;
+
+    // ---- ROLE SELECTION ----
+    window.setRole = function(r) {
+      role = r;
+      document.getElementById("role-select").style.display = "none";
+      if (role === "controller") {
+        document.getElementById("controller-ui").style.display = "block";
+      } else {
+        document.getElementById("player-ui").style.display = "block";
+        listenForGo();
+      }
+    }
+
+    // ---- CONTROLLER ----
+    window.triggerGo = async function() {
+      const now = Date.now();
+      const startServerTime = now + 200; // 200ms into future
+      await setDoc(matchDoc, {
+        startServerTime,
+        triggeredAt: now
+      });
+      alert("Triggered! Players will see GO soon.");
+    }
+
+    // ---- PLAYER ----
+    function listenForGo() {
+      onSnapshot(matchDoc, (snap) => {
+        const data = snap.data();
+        if (!data) return;
+        if (data.startServerTime) {
+          // Estimate offset between client and server clock
+          const serverTime = data.startServerTime;
+          const clientNow = Date.now();
+          const offset = serverTime - clientNow; 
+          goLocalTarget = performance.now() + offset;
+
+          const delay = Math.max(0, goLocalTarget - performance.now());
+          setTimeout(showGo, delay);
+        }
+      });
+    }
+
+    function showGo() {
+      goTimePerf = performance.now();
+      document.getElementById("go").style.display = "block";
+      document.getElementById("pressBtn").style.display = "inline-block";
+    }
+
+    window.playerPressed = async function() {
+      const pressTime = performance.now();
+      const reaction = pressTime - goTimePerf;
+      document.getElementById("result").innerText = 
+        "Your reaction time: " + reaction.toFixed(1) + " ms";
+
+      // Save reaction time
+      const playerId = "player-" + Math.floor(Math.random()*10000);
+      await setDoc(doc(db, "games/match1/players", playerId), {
+        reaction
+      });
+    }
+  </script>
+</body>
+</html>
