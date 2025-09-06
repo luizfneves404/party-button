@@ -1,24 +1,45 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <meta charset="UTF-8">
-  <title>Reaction Game</title>
+  <title>Party Button</title>
   <style>
-    body { font-family: sans-serif; text-align: center; margin-top: 50px; }
-    #go { display: none; font-size: 48px; color: red; margin: 20px; }
-    #result { margin-top: 20px; font-size: 20px; }
-    button { font-size: 20px; padding: 10px 20px; margin: 10px; }
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      margin-top: 50px;
+    }
+
+    #go {
+      display: none;
+      font-size: 48px;
+      color: red;
+      margin: 20px;
+    }
+
+    #result {
+      margin-top: 20px;
+      font-size: 20px;
+    }
+
+    button {
+      font-size: 20px;
+      padding: 10px 20px;
+      margin: 10px;
+    }
   </style>
 </head>
+
 <body>
-  <h1>Reaction Game</h1>
+  <h1>Party Button</h1>
 
   <div id="role-select">
-    <button onclick="setRole('controller')">I am Controller</button>
+    <button onclick="setRole('host')">I am Host</button>
     <button onclick="setRole('player')">I am Player</button>
   </div>
 
-  <div id="controller-ui" style="display:none;">
+  <div id="host-ui" style="display:none;">
     <p>Press START to trigger the game.</p>
     <button onclick="triggerGo()">START</button>
   </div>
@@ -36,13 +57,15 @@
     import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
     const firebaseConfig = {
-      apiKey: "YOUR_API_KEY",
-      authDomain: "YOUR_PROJECT.firebaseapp.com",
-      projectId: "YOUR_PROJECT_ID",
-      storageBucket: "YOUR_PROJECT.appspot.com",
-      messagingSenderId: "YOUR_SENDER_ID",
-      appId: "YOUR_APP_ID"
+      apiKey: "AIzaSyA_qQFBAw1tuP16fvqUqF97aSnO3TOaWIc",
+      authDomain: "party-button-7bbbd.firebaseapp.com",
+      projectId: "party-button-7bbbd",
+      storageBucket: "party-button-7bbbd.firebasestorage.app",
+      messagingSenderId: "61849810970",
+      appId: "1:61849810970:web:b3a79e600192dbac8d39a3"
+
     };
+
 
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
@@ -53,19 +76,19 @@
     let goTimePerf = null;
 
     // ---- ROLE SELECTION ----
-    window.setRole = function(r) {
+    window.setRole = function (r) {
       role = r;
       document.getElementById("role-select").style.display = "none";
-      if (role === "controller") {
-        document.getElementById("controller-ui").style.display = "block";
+      if (role === "host") {
+        document.getElementById("host-ui").style.display = "block";
       } else {
         document.getElementById("player-ui").style.display = "block";
         listenForGo();
       }
     }
 
-    // ---- CONTROLLER ----
-    window.triggerGo = async function() {
+    // ---- HOST ----
+    window.triggerGo = async function () {
       const now = Date.now();
       const startServerTime = now + 200; // 200ms into future
       await setDoc(matchDoc, {
@@ -84,7 +107,7 @@
           // Estimate offset between client and server clock
           const serverTime = data.startServerTime;
           const clientNow = Date.now();
-          const offset = serverTime - clientNow; 
+          const offset = serverTime - clientNow;
           goLocalTarget = performance.now() + offset;
 
           const delay = Math.max(0, goLocalTarget - performance.now());
@@ -99,18 +122,19 @@
       document.getElementById("pressBtn").style.display = "inline-block";
     }
 
-    window.playerPressed = async function() {
+    window.playerPressed = async function () {
       const pressTime = performance.now();
       const reaction = pressTime - goTimePerf;
-      document.getElementById("result").innerText = 
+      document.getElementById("result").innerText =
         "Your reaction time: " + reaction.toFixed(1) + " ms";
 
       // Save reaction time
-      const playerId = "player-" + Math.floor(Math.random()*10000);
+      const playerId = "player-" + Math.floor(Math.random() * 10000);
       await setDoc(doc(db, "games/match1/players", playerId), {
         reaction
       });
     }
   </script>
 </body>
+
 </html>
