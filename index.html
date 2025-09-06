@@ -28,6 +28,25 @@
       padding: 10px 20px;
       margin: 10px;
     }
+
+    /* --- NEW STYLES --- */
+    #room-id-display {
+      font-size: 24px;
+      font-weight: bold;
+      color: #007bff;
+      background-color: #f0f0f0;
+      padding: 10px;
+      border-radius: 5px;
+      display: inline-block;
+      margin-top: 10px;
+    }
+
+    input[type="text"] {
+      font-size: 20px;
+      padding: 10px;
+      text-align: center;
+      width: 150px;
+    }
   </style>
 </head>
 
@@ -39,8 +58,21 @@
     <button onclick="setRole('player')">I am Player</button>
   </div>
 
+  <div id="host-setup-ui" style="display:none;">
+    <p>Share this Room ID with other players:</p>
+    <div id="room-id-display"></div>
+    <button onclick="showHostGame()">Start Game</button>
+  </div>
+
+  <div id="player-setup-ui" style="display:none;">
+    <p>Enter the Room ID from the host:</p>
+    <input type="text" id="room-id-input" placeholder="e.g., 1234">
+    <button onclick="joinGame()">Join Game</button>
+  </div>
+
+
   <div id="host-ui" style="display:none;">
-    <p>Press START to trigger the game.</p>
+    <p>Press START to trigger the game for everyone in the room.</p>
     <button onclick="triggerGo()">START</button>
   </div>
 
@@ -55,6 +87,8 @@
     // ---- FIREBASE INIT ----
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
     import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+
 
     const firebaseConfig = {
       apiKey: "AIzaSyA_qQFBAw1tuP16fvqUqF97aSnO3TOaWIc",
@@ -63,43 +97,76 @@
       storageBucket: "party-button-7bbbd.firebasestorage.app",
       messagingSenderId: "61849810970",
       appId: "1:61849810970:web:b3a79e600192dbac8d39a3"
-
     };
 
 
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
-    const matchDoc = doc(db, "games", "match1");
+    const auth = getAuth(app);
+    signInAnonymously(auth).catch((error) => {
+      console.error("Anonymous sign-in failed:", error);
+    });
 
-    let role = null;
+    // --- MODIFIED: Removed hardcoded matchDoc, added roomId ---
+    let roomId = null;
     let goLocalTarget = null;
     let goTimePerf = null;
 
-    // ---- ROLE SELECTION ----
-    window.setRole = function (r) {
-      role = r;
+    // ---- ROLE SELECTION & ROOM SETUP ----
+    window.setRole = function (role) {
       document.getElementById("role-select").style.display = "none";
       if (role === "host") {
-        document.getElementById("host-ui").style.display = "block";
+        // --- NEW: Host generates a room ID ---
+        roomId = Math.floor(1000 + Math.random() * 9000).toString(); // Generate a 4-digit ID
+        document.getElementById("room-id-display").innerText = roomId;
+        document.getElementById("host-setup-ui").style.display = "block";
       } else {
-        document.getElementById("player-ui").style.display = "block";
-        listenForGo();
+        document.getElementById("player-setup-ui").style.display = "block";
       }
     }
 
+    // --- NEW: Function for host to proceed to the game screen ---
+    window.showHostGame = function () {
+      document.getElementById("host-setup-ui").style.display = "none";
+      document.getElementById("host-ui").style.display = "block";
+    }
+
+    // --- NEW: Function for player to join a room ---
+    window.joinGame = function () {
+      const inputId = document.getElementById("room-id-input").value;
+      if (!inputId) {
+        alert("Please enter a Room ID.");
+        return;
+      }
+      roomId = inputId;
+      document.getElementById("player-setup-ui").style.display = "none";
+      document.getElementById("player-ui").style.display = "block";
+      listenForGo(); // Start listening to the correct game room
+    }
+
+
     // ---- HOST ----
     window.triggerGo = async function () {
+      // --- MODIFIED: Use dynamic roomId ---
+      if (!roomId) return alert("No Room ID set!");
+      const matchDoc = doc(db, "games", roomId);
+
       const now = Date.now();
       const startServerTime = now + 200; // 200ms into future
       await setDoc(matchDoc, {
         startServerTime,
-        triggeredAt: now
-      });
+        triggeredAt: now,
+        hostId: auth.currentUser.uid
+      }, { merge: true }); // Use merge to not overwrite players data
       alert("Triggered! Players will see GO soon.");
     }
 
     // ---- PLAYER ----
     function listenForGo() {
+      // --- MODIFIED: Use dynamic roomId ---
+      if (!roomId) return;
+      const matchDoc = doc(db, "games", roomId);
+
       onSnapshot(matchDoc, (snap) => {
         const data = snap.data();
         if (!data) return;
@@ -128,9 +195,11 @@
       document.getElementById("result").innerText =
         "Your reaction time: " + reaction.toFixed(1) + " ms";
 
+      // --- MODIFIED: Use dynamic roomId for subcollection ---
+      if (!roomId) return;
       // Save reaction time
-      const playerId = "player-" + Math.floor(Math.random() * 10000);
-      await setDoc(doc(db, "games/match1/players", playerId), {
+      const playerId = auth.currentUser.uid;
+      await setDoc(doc(db, "games", roomId, "players", playerId), {
         reaction
       });
     }
