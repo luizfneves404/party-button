@@ -17,6 +17,8 @@
       font-size: 48px;
       color: red;
       margin: 20px;
+      /* HINT: Tell the browser to optimize this element for display changes */
+      will-change: display;
     }
 
     #result {
@@ -119,7 +121,7 @@
     <div id="player-controls" style="display:none;">
       <p>Wait for the GO signal!</p>
       <div id="go">GO!</div>
-      <button id="pressBtn" style="display:none;" onclick="playerPressed()">Press!</button>
+      <button id="pressBtn" style="display:none;" onmousedown="playerPressed()">Press!</button>
       <div id="result"></div>
     </div>
 
@@ -240,20 +242,21 @@
       onSnapshot(matchDoc, (snap) => {
         const data = snap.data();
         if (data && data.startServerTime) {
-          // Estimate offset between client and server clock
           const serverTime = data.startServerTime;
           const clientNow = Date.now();
           const offset = serverTime - clientNow;
-          goLocalTarget = performance.now() + offset;
+          const goLocalTargetTime = performance.now() + offset;
+          const delay = Math.max(0, goLocalTargetTime - performance.now());
 
-          const delay = Math.max(0, goLocalTarget - performance.now());
+          // We still use setTimeout to schedule the event
           setTimeout(showGo, delay);
+
         } else {
-          // --- NEW: Handle the reset signal ---
           resetPlayerUI();
         }
       });
     }
+
 
     // --- NEW: Function to reset the player's UI to the initial state ---
     function resetPlayerUI() {
@@ -261,34 +264,52 @@
       document.getElementById("pressBtn").style.display = "none";
       document.getElementById("result").innerText = "";
       goTimePerf = null;
-      goLocalTarget = null;
     }
 
+
     function showGo() {
-      goTimePerf = performance.now();
+      // Step 1: Make the element visible. The browser will now
+      // schedule this to be painted on the next frame.
       document.getElementById("go").style.display = "block";
       document.getElementById("pressBtn").style.display = "inline-block";
       document.getElementById("result").innerText = "";
-    }
 
-    window.playerPressed = async function () {
-      if (!goTimePerf) return; // Avoid accidental double-presses
-
-      const pressTime = performance.now();
-      const reaction = pressTime - goTimePerf;
-      document.getElementById("result").innerText = "Your reaction time: " + reaction.toFixed(1) + " ms";
-      document.getElementById("pressBtn").style.display = "none"; // Hide button after press
-
-      // Reset goTimePerf to prevent resubmission
-      goTimePerf = null;
-
-      if (!roomId) return;
-      // Save reaction time
-      const playerId = auth.currentUser.uid;
-      await setDoc(doc(db, "games", roomId, "players", playerId), {
-        reaction
+      // Step 2: Ask the browser to run code right before that next paint.
+      // The 'paintStartTime' argument is a high-precision timestamp provided
+      // by the browser, representing when the frame began. This is our ACCURATE start time.
+      requestAnimationFrame((paintStartTime) => {
+        goTimePerf = paintStartTime;
       });
     }
+
+
+    window.playerPressed = async function () {
+      if (!goTimePerf) return;
+
+      // The pressTime is now also a high-precision timestamp
+      const pressTime = performance.now();
+      const reaction = pressTime - goTimePerf;
+
+      // Prevent double-clicks or resubmissions
+      const recordedGoTime = goTimePerf;
+      goTimePerf = null;
+
+      document.getElementById("result").innerText = "Your reaction time: " + reaction.toFixed(2) + " ms";
+      document.getElementById("pressBtn").style.display = "none";
+
+      if (!roomId) return;
+      const playerId = auth.currentUser.uid;
+
+      // Ensure we don't submit negative times (e.g., if a click happens before the paint)
+      if (reaction > 0) {
+        await setDoc(doc(db, "games", roomId, "players", playerId), {
+          reaction
+        });
+      } else {
+        document.getElementById("result").innerText = "Too soon! Try again on reset.";
+      }
+    }
+
 
     // --- NEW: Leaderboard listener for everyone ---
     function listenForLeaderboardUpdates() {
