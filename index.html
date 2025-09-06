@@ -165,7 +165,6 @@
     });
 
     let roomId = null;
-    let goLocalTarget = null;
     let goTimePerf = null;
     let unsubscribeFromLeaderboard = null; // To stop listening when needed
 
@@ -211,9 +210,8 @@
 
       const matchDoc = doc(db, "games", roomId);
       const now = Date.now();
-      const startServerTime = now + 500; // 500ms into future for better sync
       await setDoc(matchDoc, {
-        startServerTime,
+        startServerTime: now,
         triggeredAt: now,
         hostId: auth.currentUser.uid
       }, { merge: true });
@@ -250,15 +248,7 @@
       onSnapshot(matchDoc, (snap) => {
         const data = snap.data();
         if (data && data.startServerTime) {
-          const serverTime = data.startServerTime;
-          const clientNow = Date.now();
-          const offset = serverTime - clientNow;
-          const goLocalTargetTime = performance.now() + offset;
-          const delay = Math.max(0, goLocalTargetTime - performance.now());
-
-          // We still use setTimeout to schedule the event
-          setTimeout(showGo, delay);
-
+          showGo();
         } else {
           resetPlayerUI();
         }
@@ -298,9 +288,7 @@
         return;
       }
 
-      // The pressTime is now also a high-precision timestamp
-      const pressTime = performance.now();
-      const reaction = pressTime - goTimePerf;
+      const reaction = performance.now() - goTimePerf;
 
       // Prevent double-clicks or resubmissions
       const recordedGoTime = goTimePerf;
