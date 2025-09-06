@@ -13,20 +13,39 @@
     }
 
     #go {
-      /* Changed from display: none to visibility: hidden */
+      /* Start hidden */
+      opacity: 0;
+      transform: scale(0.8);
+      transition: transform 0.05s ease-out, opacity 0.05s ease-out;
+
+      /* Keep its space in the layout */
       visibility: hidden;
+
       font-size: 48px;
       color: red;
       margin: 20px;
-      /* HINT: Tell the browser to optimize this element for display changes */
-      will-change: visibility;
+      /* HINT: Tell the browser to optimize these specific properties */
+      will-change: transform, opacity;
     }
+
+    #go.visible {
+      /* End visible */
+      opacity: 1;
+      transform: scale(1);
+      visibility: visible;
+    }
+
 
     #result {
       margin-top: 20px;
       font-size: 20px;
       min-height: 24px;
       /* Reserve space */
+    }
+
+    #pressBtn {
+      /* Prevents browser from waiting to see if it's a zoom/pan gesture */
+      touch-action: manipulation;
     }
 
     button {
@@ -38,6 +57,12 @@
       border-radius: 5px;
       background-color: #f0f0f0;
     }
+
+    button:active {
+      transform: scale(0.95);
+      background-color: #d0d0d0;
+    }
+
 
     button:hover {
       background-color: #e0e0e0;
@@ -129,7 +154,7 @@
     <div id="player-controls" style="display:none;">
       <p>Wait for the GO signal!</p>
       <div id="go">GO!</div>
-      <button id="pressBtn" onmousedown="playerPressed()">Press!</button>
+      <button id="pressBtn" onpointerdown="playerPressed()">Press!</button>
       <div id="result"></div>
     </div>
 
@@ -258,23 +283,24 @@
 
     // --- NEW: Function to reset the player's UI to the initial state ---
     function resetPlayerUI() {
-      document.getElementById("go").style.visibility = "hidden";
-      document.getElementById("pressBtn").disabled = false; // Re-enable the button
+      // Just remove the class to hide it again
+      document.getElementById("go").classList.remove("visible");
+      document.getElementById("pressBtn").disabled = false;
       document.getElementById("result").innerText = "";
       goTimePerf = null;
     }
 
 
+
     function showGo() {
-      // Step 1: Make the element visible. The browser will now
-      // schedule this to be painted on the next frame.
-      document.getElementById("go").style.visibility = "visible";
-      document.getElementById("pressBtn").disabled = false; // Ensure button is enabled
+      const goElement = document.getElementById("go");
+      // Step 1: Add the class. The browser will now animate this on the next frame.
+      goElement.classList.add("visible");
+      document.getElementById("pressBtn").disabled = false;
       document.getElementById("result").innerText = "";
 
-      // Step 2: Ask the browser to run code right before that next paint.
-      // The 'paintStartTime' argument is a high-precision timestamp provided
-      // by the browser, representing when the frame began. This is our ACCURATE start time.
+      // Step 2: This part remains the same. It's already perfect.
+      // We still use rAF to get the most accurate paint timestamp.
       requestAnimationFrame((paintStartTime) => {
         goTimePerf = paintStartTime;
       });
