@@ -9,6 +9,7 @@
       font-family: sans-serif;
       text-align: center;
       margin-top: 50px;
+      background-color: #fdfdfd;
     }
 
     #go {
@@ -21,15 +22,24 @@
     #result {
       margin-top: 20px;
       font-size: 20px;
+      min-height: 24px;
+      /* Reserve space */
     }
 
     button {
       font-size: 20px;
       padding: 10px 20px;
       margin: 10px;
+      cursor: pointer;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      background-color: #f0f0f0;
     }
 
-    /* --- NEW STYLES --- */
+    button:hover {
+      background-color: #e0e0e0;
+    }
+
     #room-id-display {
       font-size: 24px;
       font-weight: bold;
@@ -39,6 +49,7 @@
       border-radius: 5px;
       display: inline-block;
       margin-top: 10px;
+      letter-spacing: 2px;
     }
 
     input[type="text"] {
@@ -46,6 +57,34 @@
       padding: 10px;
       text-align: center;
       width: 150px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+
+    /* --- NEW STYLES --- */
+    #game-ui {
+      margin-top: 30px;
+    }
+
+    #leaderboard-container {
+      margin-top: 40px;
+      border: 1px solid #ddd;
+      padding: 15px;
+      border-radius: 8px;
+      display: inline-block;
+      min-width: 250px;
+      background-color: #fff;
+    }
+
+    #leaderboard {
+      list-style-type: decimal;
+      padding-left: 30px;
+      text-align: left;
+      font-size: 18px;
+    }
+
+    #leaderboard li {
+      margin-bottom: 5px;
     }
   </style>
 </head>
@@ -70,23 +109,31 @@
     <button onclick="joinGame()">Join Game</button>
   </div>
 
+  <div id="game-ui" style="display:none;">
+    <div id="host-controls" style="display:none;">
+      <p>Press START to trigger the game for everyone.</p>
+      <button onclick="triggerGo()">START</button>
+      <button onclick="resetGame()">Reset Game & Leaderboard</button>
+    </div>
 
-  <div id="host-ui" style="display:none;">
-    <p>Press START to trigger the game for everyone in the room.</p>
-    <button onclick="triggerGo()">START</button>
+    <div id="player-controls" style="display:none;">
+      <p>Wait for the GO signal!</p>
+      <div id="go">GO!</div>
+      <button id="pressBtn" style="display:none;" onclick="playerPressed()">Press!</button>
+      <div id="result"></div>
+    </div>
+
+    <div id="leaderboard-container">
+      <h2>Leaderboard</h2>
+      <ol id="leaderboard"></ol>
+    </div>
   </div>
 
-  <div id="player-ui" style="display:none;">
-    <p>Wait for the GO signal!</p>
-    <div id="go">GO!</div>
-    <button id="pressBtn" style="display:none;" onclick="playerPressed()">Press!</button>
-    <div id="result"></div>
-  </div>
 
   <script type="module">
     // ---- FIREBASE INIT ----
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-    import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { getFirestore, doc, setDoc, onSnapshot, collection, query, orderBy, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
     import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 
@@ -107,16 +154,15 @@
       console.error("Anonymous sign-in failed:", error);
     });
 
-    // --- MODIFIED: Removed hardcoded matchDoc, added roomId ---
     let roomId = null;
     let goLocalTarget = null;
     let goTimePerf = null;
+    let unsubscribeFromLeaderboard = null; // To stop listening when needed
 
     // ---- ROLE SELECTION & ROOM SETUP ----
     window.setRole = function (role) {
       document.getElementById("role-select").style.display = "none";
       if (role === "host") {
-        // --- NEW: Host generates a room ID ---
         roomId = Math.floor(1000 + Math.random() * 9000).toString(); // Generate a 4-digit ID
         document.getElementById("room-id-display").innerText = roomId;
         document.getElementById("host-setup-ui").style.display = "block";
@@ -125,13 +171,13 @@
       }
     }
 
-    // --- NEW: Function for host to proceed to the game screen ---
     window.showHostGame = function () {
       document.getElementById("host-setup-ui").style.display = "none";
-      document.getElementById("host-ui").style.display = "block";
+      document.getElementById("game-ui").style.display = "block";
+      document.getElementById("host-controls").style.display = "block";
+      listenForLeaderboardUpdates(); // Start listening for scores
     }
 
-    // --- NEW: Function for player to join a room ---
     window.joinGame = function () {
       const inputId = document.getElementById("room-id-input").value;
       if (!inputId) {
@@ -140,37 +186,60 @@
       }
       roomId = inputId;
       document.getElementById("player-setup-ui").style.display = "none";
-      document.getElementById("player-ui").style.display = "block";
-      listenForGo(); // Start listening to the correct game room
+      document.getElementById("game-ui").style.display = "block";
+      document.getElementById("player-controls").style.display = "block";
+      listenForGo(); // Start listening to the game signal
+      listenForLeaderboardUpdates(); // Start listening for scores
     }
 
 
     // ---- HOST ----
     window.triggerGo = async function () {
-      // --- MODIFIED: Use dynamic roomId ---
       if (!roomId) return alert("No Room ID set!");
-      const matchDoc = doc(db, "games", roomId);
+      // First, reset the game state to ensure a clean start
+      await resetGame(false); // "false" to not show alert
 
+      const matchDoc = doc(db, "games", roomId);
       const now = Date.now();
-      const startServerTime = now + 200; // 200ms into future
+      const startServerTime = now + 500; // 500ms into future for better sync
       await setDoc(matchDoc, {
         startServerTime,
         triggeredAt: now,
         hostId: auth.currentUser.uid
-      }, { merge: true }); // Use merge to not overwrite players data
-      alert("Triggered! Players will see GO soon.");
+      }, { merge: true });
+      console.log("Triggered!");
+    }
+
+    // --- NEW: Reset function for the host ---
+    window.resetGame = async function (showAlert = true) {
+      if (!roomId) return;
+      // 1. Clear the game start time
+      const matchDoc = doc(db, "games", roomId);
+      await setDoc(matchDoc, { startServerTime: null }, { merge: true });
+
+      // 2. Delete all player scores in the subcollection
+      const playersColRef = collection(db, "games", roomId, "players");
+      const playersSnapshot = await getDocs(playersColRef);
+
+      const deletePromises = [];
+      playersSnapshot.forEach((doc) => {
+        deletePromises.push(deleteDoc(doc.ref));
+      });
+      await Promise.all(deletePromises);
+
+      if (showAlert) {
+        alert("Game and leaderboard have been reset for everyone!");
+      }
     }
 
     // ---- PLAYER ----
     function listenForGo() {
-      // --- MODIFIED: Use dynamic roomId ---
       if (!roomId) return;
       const matchDoc = doc(db, "games", roomId);
 
       onSnapshot(matchDoc, (snap) => {
         const data = snap.data();
-        if (!data) return;
-        if (data.startServerTime) {
+        if (data && data.startServerTime) {
           // Estimate offset between client and server clock
           const serverTime = data.startServerTime;
           const clientNow = Date.now();
@@ -179,23 +248,40 @@
 
           const delay = Math.max(0, goLocalTarget - performance.now());
           setTimeout(showGo, delay);
+        } else {
+          // --- NEW: Handle the reset signal ---
+          resetPlayerUI();
         }
       });
+    }
+
+    // --- NEW: Function to reset the player's UI to the initial state ---
+    function resetPlayerUI() {
+      document.getElementById("go").style.display = "none";
+      document.getElementById("pressBtn").style.display = "none";
+      document.getElementById("result").innerText = "";
+      goTimePerf = null;
+      goLocalTarget = null;
     }
 
     function showGo() {
       goTimePerf = performance.now();
       document.getElementById("go").style.display = "block";
       document.getElementById("pressBtn").style.display = "inline-block";
+      document.getElementById("result").innerText = "";
     }
 
     window.playerPressed = async function () {
+      if (!goTimePerf) return; // Avoid accidental double-presses
+
       const pressTime = performance.now();
       const reaction = pressTime - goTimePerf;
-      document.getElementById("result").innerText =
-        "Your reaction time: " + reaction.toFixed(1) + " ms";
+      document.getElementById("result").innerText = "Your reaction time: " + reaction.toFixed(1) + " ms";
+      document.getElementById("pressBtn").style.display = "none"; // Hide button after press
 
-      // --- MODIFIED: Use dynamic roomId for subcollection ---
+      // Reset goTimePerf to prevent resubmission
+      goTimePerf = null;
+
       if (!roomId) return;
       // Save reaction time
       const playerId = auth.currentUser.uid;
@@ -203,6 +289,34 @@
         reaction
       });
     }
+
+    // --- NEW: Leaderboard listener for everyone ---
+    function listenForLeaderboardUpdates() {
+      if (!roomId) return;
+      const playersColRef = collection(db, "games", roomId, "players");
+      // Query to order players by reaction time, ascending (fastest first)
+      const q = query(playersColRef, orderBy("reaction", "asc"));
+
+      unsubscribeFromLeaderboard = onSnapshot(q, (querySnapshot) => {
+        const leaderboardEl = document.getElementById("leaderboard");
+        leaderboardEl.innerHTML = ""; // Clear current list
+
+        if (querySnapshot.empty) {
+          leaderboardEl.innerHTML = "<li>Waiting for scores...</li>";
+          return;
+        }
+
+        querySnapshot.forEach((doc) => {
+          const playerData = doc.data();
+          const reactionTime = playerData.reaction.toFixed(1);
+
+          const li = document.createElement("li");
+          li.textContent = `${reactionTime} ms`;
+          leaderboardEl.appendChild(li);
+        });
+      });
+    }
+
   </script>
 </body>
 
