@@ -13,12 +13,13 @@
     }
 
     #go {
-      display: none;
+      /* Changed from display: none to visibility: hidden */
+      visibility: hidden;
       font-size: 48px;
       color: red;
       margin: 20px;
       /* HINT: Tell the browser to optimize this element for display changes */
-      will-change: display;
+      will-change: visibility;
     }
 
     #result {
@@ -40,6 +41,13 @@
 
     button:hover {
       background-color: #e0e0e0;
+    }
+
+    /* Style for disabled buttons */
+    button:disabled {
+      cursor: not-allowed;
+      background-color: #e9e9e9;
+      color: #999;
     }
 
     #room-id-display {
@@ -121,7 +129,7 @@
     <div id="player-controls" style="display:none;">
       <p>Wait for the GO signal!</p>
       <div id="go">GO!</div>
-      <button id="pressBtn" style="display:none;" onmousedown="playerPressed()">Press!</button>
+      <button id="pressBtn" onmousedown="playerPressed()">Press!</button>
       <div id="result"></div>
     </div>
 
@@ -260,8 +268,8 @@
 
     // --- NEW: Function to reset the player's UI to the initial state ---
     function resetPlayerUI() {
-      document.getElementById("go").style.display = "none";
-      document.getElementById("pressBtn").style.display = "none";
+      document.getElementById("go").style.visibility = "hidden";
+      document.getElementById("pressBtn").disabled = false; // Re-enable the button
       document.getElementById("result").innerText = "";
       goTimePerf = null;
     }
@@ -270,8 +278,8 @@
     function showGo() {
       // Step 1: Make the element visible. The browser will now
       // schedule this to be painted on the next frame.
-      document.getElementById("go").style.display = "block";
-      document.getElementById("pressBtn").style.display = "inline-block";
+      document.getElementById("go").style.visibility = "visible";
+      document.getElementById("pressBtn").disabled = false; // Ensure button is enabled
       document.getElementById("result").innerText = "";
 
       // Step 2: Ask the browser to run code right before that next paint.
@@ -284,7 +292,11 @@
 
 
     window.playerPressed = async function () {
-      if (!goTimePerf) return;
+      // If goTimePerf is not set, it means the GO signal hasn't appeared yet.
+      if (!goTimePerf) {
+        alert("Too soon! Wait for the GO signal.");
+        return;
+      }
 
       // The pressTime is now also a high-precision timestamp
       const pressTime = performance.now();
@@ -295,7 +307,8 @@
       goTimePerf = null;
 
       document.getElementById("result").innerText = "Your reaction time: " + reaction.toFixed(2) + " ms";
-      document.getElementById("pressBtn").style.display = "none";
+      // Disable the button instead of hiding it to prevent UI shift
+      document.getElementById("pressBtn").disabled = true;
 
       if (!roomId) return;
       const playerId = auth.currentUser.uid;
